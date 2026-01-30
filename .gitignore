@@ -1,0 +1,12 @@
+# ESPHome build artifacts
+.esphome/
+__pycache__/
+*.pyc
+
+# Secrets (contains WiFi passwords, etc.)
+secrets.yaml
+secrets/
+
+# IDE
+.vscode/
+.idea/
