@@ -1,0 +1,310 @@
+// NEW poll_dtu_data_ implementation
+void SunSpecProxy::poll_dtu_data_() {
+  uint32_t now = millis();
+  
+  // Time for next poll?
+  if (now - last_poll_time_ < poll_interval_ms_) return;
+  last_poll_time_ = now;
+  
+  // Ensure connection
+  if (!connect_to_dtu_()) {
+    ESP_LOGW(TAG, "DTU: Not connected, skipping poll");
+    return;
+  }
+  
+  // Read all 200 registers from 0x4000 (8 MPPT channels × 25 regs)
+  // Split into two reads if needed (max 125 regs per Modbus read)
+  ESP_LOGD(TAG, "DTU: Reading %d registers from 0x%04X", HM_TOTAL_REGS, HM_DATA_BASE);
+  
+  // Read first 125 registers
+  if (!send_modbus_tcp_request_(0x03, HM_DATA_BASE, 125)) {
+    ESP_LOGW(TAG, "DTU: Failed to send request (chunk 1)");
+    dtu_poll_fail_count_++;
+    return;
+  }
+  
+  uint8_t resp[512];
+  int n = read_modbus_tcp_response_(resp, sizeof(resp));
+  if (n < 0) {
+    ESP_LOGW(TAG, "DTU: Failed to read response (chunk 1)");
+    dtu_poll_fail_count_++;
+    return;
+  }
+  
+  // Parse first chunk
+  if (n >= 9 && resp[7] == 0x03) {
+    uint8_t byte_count = resp[8];
+    int reg_count = byte_count / 2;
+    if (reg_count >= 125) {
+      for (int i = 0; i < 125; i++) {
+        dtu_regs_[i] = be16(&resp[9 + i * 2]);
+      }
+    } else {
+      ESP_LOGW(TAG, "DTU: Short response chunk 1: %d regs", reg_count);
+      dtu_poll_fail_count_++;
+      return;
+    }
+  } else {
+    ESP_LOGW(TAG, "DTU: Invalid response chunk 1");
+    dtu_poll_fail_count_++;
+    return;
+  }
+  
+  // Read remaining 75 registers
+  if (!send_modbus_tcp_request_(0x03, HM_DATA_BASE + 125, 75)) {
+    ESP_LOGW(TAG, "DTU: Failed to send request (chunk 2)");
+    dtu_poll_fail_count_++;
+    return;
+  }
+  
+  n = read_modbus_tcp_response_(resp, sizeof(resp));
+  if (n < 0) {
+    ESP_LOGW(TAG, "DTU: Failed to read response (chunk 2)");
+    dtu_poll_fail_count_++;
+    return;
+  }
+  
+  // Parse second chunk
+  if (n >= 9 && resp[7] == 0x03) {
+    uint8_t byte_count = resp[8];
+    int reg_count = byte_count / 2;
+    if (reg_count >= 75) {
+      for (int i = 0; i < 75; i++) {
+        dtu_regs_[125 + i] = be16(&resp[9 + i * 2]);
+      }
+      dtu_data_valid_ = true;
+      dtu_poll_count_++;
+      last_dtu_poll_ok_ms_ = now;
+    } else {
+      ESP_LOGW(TAG, "DTU: Short response chunk 2: %d regs", reg_count);
+      dtu_poll_fail_count_++;
+      return;
+    }
+  } else {
+    ESP_LOGW(TAG, "DTU: Invalid response chunk 2");
+    dtu_poll_fail_count_++;
+    return;
+  }
+  
+  ESP_LOGI(TAG, "DTU: Successfully read 200 registers (poll count: %lu)", dtu_poll_count_);
+  
+  // Parse register data
+  parse_dtu_registers_(dtu_regs_, HM_TOTAL_REGS);
+  
+  // Map MPPT channels to inverters
+  map_mppt_to_inverters_();
+  
+  // Aggregate per-inverter data
+  for (int i = 0; i < num_sources_; i++) {
+    aggregate_inverter_data_(i);
+  }
+  
+  // Update SunSpec registers
+  aggregate_and_update_registers_();
+}
+
+void SunSpecProxy::parse_dtu_registers_(const uint16_t *regs, int reg_count) {
+  ESP_LOGD(TAG, "DTU: Parsing %d registers into MPPT channel data", reg_count);
+  
+  // Clear all inverter MPPT data first
+  for (int i = 0; i < num_sources_; i++) {
+    sources_[i].mppt_count = 0;
+    for (int m = 0; m < MAX_MPPT_PER_INVERTER; m++) {
+      sources_[i].mppt[m].data_valid = false;
+    }
+  }
+  
+  // Parse each 25-register block
+  int channels_found = 0;
+  for (int ch = 0; ch < HM_MAX_CHANNELS && ch * HM_MPPT_STRIDE < reg_count; ch++) {
+    const uint16_t *ch_regs = &regs[ch * HM_MPPT_STRIDE];
+    
+    // Check marker
+    uint16_t marker = ch_regs[HM_MARKER];
+    if (marker != 12) {
+      ESP_LOGV(TAG, "DTU: Channel %d marker invalid (%d), skipping", ch, marker);
+      continue;
+    }
+    
+    // Extract inverter serial number (3 regs = 6 bytes)
+    char inv_sn[13];
+    uint8_t sn_bytes[6];
+    sn_bytes[0] = (ch_regs[HM_INV_SN_1] >> 8) & 0xFF;
+    sn_bytes[1] = ch_regs[HM_INV_SN_1] & 0xFF;
+    sn_bytes[2] = (ch_regs[HM_INV_SN_2] >> 8) & 0xFF;
+    sn_bytes[3] = ch_regs[HM_INV_SN_2] & 0xFF;
+    sn_bytes[4] = (ch_regs[HM_INV_SN_3] >> 8) & 0xFF;
+    sn_bytes[5] = ch_regs[HM_INV_SN_3] & 0xFF;
+    
+    for (int j = 0; j < 6; j++) {
+      snprintf(&inv_sn[j*2], 3, "%02x", sn_bytes[j]);
+    }
+    inv_sn[12] = 0;
+    
+    // Extract MPPT number
+    uint16_t mppt_num = ch_regs[HM_MPPT_NUM];
+    
+    // Find matching inverter by serial number
+    int inv_idx = -1;
+    for (int i = 0; i < num_sources_; i++) {
+      if (strlen(sources_[i].serial_number) > 0 && strcmp(sources_[i].serial_number, inv_sn) == 0) {
+        inv_idx = i;
+        break;
+      }
+    }
+    
+    if (inv_idx < 0) {
+      ESP_LOGD(TAG, "DTU: Channel %d: SN=%s MPPT=%d (no matching inverter config)", ch, inv_sn, mppt_num);
+      continue;
+    }
+    
+    auto &inv = sources_[inv_idx];
+    
+    // Find or create MPPT slot
+    int mppt_idx = -1;
+    for (int m = 0; m < inv.mppt_count; m++) {
+      if (inv.mppt[m].mppt_num == mppt_num) {
+        mppt_idx = m;
+        break;
+      }
+    }
+    if (mppt_idx < 0 && inv.mppt_count < MAX_MPPT_PER_INVERTER) {
+      mppt_idx = inv.mppt_count++;
+    }
+    if (mppt_idx < 0) {
+      ESP_LOGW(TAG, "DTU: No MPPT slot available for %s MPPT%d", inv.name, mppt_num);
+      continue;
+    }
+    
+    auto &mppt = inv.mppt[mppt_idx];
+    mppt.mppt_num = mppt_num;
+    mppt.data_valid = true;
+    
+    // Decode values with correct scaling
+    mppt.dc_voltage_v = (float)ch_regs[HM_DC_VOLTAGE] / 10.0f;
+    mppt.dc_current_a = (float)ch_regs[HM_DC_CURRENT] / 100.0f;  // ÷100, not ÷10!
+    mppt.ac_voltage_v = (float)ch_regs[HM_AC_VOLTAGE] / 10.0f;
+    mppt.frequency_hz = (float)ch_regs[HM_FREQUENCY] / 100.0f;
+    mppt.power_w = (float)ch_regs[HM_POWER] / 10.0f;
+    mppt.today_energy_wh = (float)ch_regs[HM_TODAY_ENERGY];
+    
+    uint32_t total_wh = ((uint32_t)ch_regs[HM_TOTAL_ENERGY_H] << 16) | ch_regs[HM_TOTAL_ENERGY_L];
+    mppt.total_energy_kwh = (float)total_wh / 1000.0f;
+    
+    mppt.temperature_c = (float)(int16_t)ch_regs[HM_TEMPERATURE] / 10.0f;
+    mppt.status = ch_regs[HM_STATUS];
+    
+    channels_found++;
+    
+    ESP_LOGD(TAG, "DTU: Ch%d → %s MPPT%d: %.0fW (DC: %.1fV/%.2fA), AC: %.0fV/%.2fHz, Today: %.0fWh, Total: %.1fkWh, T: %.1f°C, Status: %d",
+             ch, inv.name, mppt_num, mppt.power_w, 
+             mppt.dc_voltage_v, mppt.dc_current_a,
+             mppt.ac_voltage_v, mppt.frequency_hz,
+             mppt.today_energy_wh, mppt.total_energy_kwh,
+             mppt.temperature_c, mppt.status);
+  }
+  
+  ESP_LOGI(TAG, "DTU: Parsed %d MPPT channels from register data", channels_found);
+}
+
+void SunSpecProxy::map_mppt_to_inverters_() {
+  // Already done in parse_dtu_registers_ via serial number matching
+}
+
+void SunSpecProxy::aggregate_inverter_data_(int inv_idx) {
+  auto &inv = sources_[inv_idx];
+  
+  // Reset aggregates
+  inv.power_w = 0;
+  inv.voltage_v = 0;
+  inv.current_a = 0;
+  inv.frequency_hz = 0;
+  inv.energy_kwh = 0;
+  inv.today_energy_wh = 0;
+  inv.temperature_c = NAN;
+  inv.pv_voltage_v = 0;
+  inv.pv_current_a = 0;
+  inv.pv_power_w = 0;
+  inv.producing = false;
+  inv.data_valid = false;
+  
+  if (inv.mppt_count == 0) return;
+  
+  int valid_count = 0;
+  float max_temp = NAN;
+  
+  for (int m = 0; m < inv.mppt_count; m++) {
+    auto &mppt = inv.mppt[m];
+    if (!mppt.data_valid) continue;
+    
+    valid_count++;
+    inv.power_w += mppt.power_w;
+    inv.pv_power_w += mppt.power_w;  // For microinverters, AC ≈ DC
+    inv.voltage_v += mppt.ac_voltage_v;
+    inv.frequency_hz += mppt.frequency_hz;
+    inv.today_energy_wh += mppt.today_energy_wh;
+    inv.energy_kwh += mppt.total_energy_kwh;
+    
+    // DC side
+    inv.pv_voltage_v += mppt.dc_voltage_v;
+    inv.pv_current_a += mppt.dc_current_a;
+    
+    // Max temperature
+    if (std::isnan(max_temp) || mppt.temperature_c > max_temp) {
+      max_temp = mppt.temperature_c;
+    }
+    
+    if (mppt.power_w > 0) inv.producing = true;
+  }
+  
+  if (valid_count > 0) {
+    inv.voltage_v /= valid_count;
+    inv.frequency_hz /= valid_count;
+    inv.pv_voltage_v /= valid_count;
+    inv.temperature_c = max_temp;
+    inv.data_valid = true;
+    inv.last_poll_ms = millis();
+    
+    // Estimate current from power/voltage
+    if (inv.voltage_v > 0) {
+      inv.current_a = inv.power_w / inv.voltage_v;
+    }
+    
+    inv.poll_success_count++;
+    
+    ESP_LOGI(TAG, "INV: %s — P=%.0fW (DC: %.1fV/%.2fA=%.0fW), AC: %.1fV/%.2fHz, Today=%.0fWh, Total=%.1fkWh, T=%.1f°C (%d MPPTs)",
+             inv.name, inv.power_w,
+             inv.pv_voltage_v, inv.pv_current_a, inv.pv_power_w,
+             inv.voltage_v, inv.frequency_hz,
+             inv.today_energy_wh, inv.energy_kwh,
+             inv.temperature_c, valid_count);
+  }
+}
+
+void SunSpecProxy::publish_mppt_sensors_(int inv_idx, int mppt_idx) {
+  auto &inv = sources_[inv_idx];
+  if (mppt_idx >= inv.mppt_count) return;
+  
+  auto &mppt = inv.mppt[mppt_idx];
+  if (!mppt.data_valid) return;
+  
+  // Publish per-MPPT sensors if configured
+  if (mppt_dc_voltage_sensors_[inv_idx][mppt_idx]) 
+    mppt_dc_voltage_sensors_[inv_idx][mppt_idx]->publish_state(mppt.dc_voltage_v);
+  if (mppt_dc_current_sensors_[inv_idx][mppt_idx]) 
+    mppt_dc_current_sensors_[inv_idx][mppt_idx]->publish_state(mppt.dc_current_a);
+  if (mppt_dc_power_sensors_[inv_idx][mppt_idx]) 
+    mppt_dc_power_sensors_[inv_idx][mppt_idx]->publish_state(mppt.dc_voltage_v * mppt.dc_current_a);
+  if (mppt_ac_voltage_sensors_[inv_idx][mppt_idx]) 
+    mppt_ac_voltage_sensors_[inv_idx][mppt_idx]->publish_state(mppt.ac_voltage_v);
+  if (mppt_frequency_sensors_[inv_idx][mppt_idx]) 
+    mppt_frequency_sensors_[inv_idx][mppt_idx]->publish_state(mppt.frequency_hz);
+  if (mppt_power_sensors_[inv_idx][mppt_idx]) 
+    mppt_power_sensors_[inv_idx][mppt_idx]->publish_state(mppt.power_w);
+  if (mppt_today_energy_sensors_[inv_idx][mppt_idx]) 
+    mppt_today_energy_sensors_[inv_idx][mppt_idx]->publish_state(mppt.today_energy_wh);
+  if (mppt_total_energy_sensors_[inv_idx][mppt_idx]) 
+    mppt_total_energy_sensors_[inv_idx][mppt_idx]->publish_state(mppt.total_energy_kwh);
+  if (mppt_temperature_sensors_[inv_idx][mppt_idx]) 
+    mppt_temperature_sensors_[inv_idx][mppt_idx]->publish_state(mppt.temperature_c);
+}

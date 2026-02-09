@@ -1,0 +1,407 @@
+views:
+  # =============================================
+  # TAB 1: Overview
+  # =============================================
+  - title: Overview
+    path: overview
+    icon: mdi:solar-power-variant
+    type: sections
+    max_columns: 4
+    sections:
+      - type: grid
+        title: "☀️ System Overview"
+        cards:
+          - type: gauge
+            entity: sensor.waveshare_rs485_aggregate_power
+            name: Total Power
+            unit: W
+            needle: true
+            min: 0
+            max: 7000
+            segments:
+              - from: 0
+                color: "#db4437"
+              - from: 500
+                color: "#ffa600"
+              - from: 2000
+                color: "#43a047"
+              - from: 5000
+                color: "#1e88e5"
+
+          - type: entity
+            entity: sensor.waveshare_rs485_aggregate_energy
+            name: Lifetime Energy
+            icon: mdi:lightning-bolt
+
+          - type: entity
+            entity: sensor.waveshare_rs485_aggregate_voltage
+            name: Grid Voltage
+            icon: mdi:flash
+
+          - type: entity
+            entity: sensor.waveshare_rs485_aggregate_frequency
+            name: Grid Frequency
+            icon: mdi:sine-wave
+
+          - type: entity
+            entity: sensor.waveshare_rs485_aggregate_current
+            name: Total Current
+            icon: mdi:current-ac
+
+      - type: grid
+        title: "🏠 Inverters"
+        cards:
+          - type: gauge
+            entity: sensor.waveshare_rs485_garage_roof_power
+            name: "Garage Roof (3-phase)"
+            unit: W
+            needle: true
+            min: 0
+            max: 5000
+            segments:
+              - from: 0
+                color: "#db4437"
+              - from: 500
+                color: "#ffa600"
+              - from: 1500
+                color: "#43a047"
+              - from: 3500
+                color: "#1e88e5"
+
+          - type: gauge
+            entity: sensor.waveshare_rs485_shed_power
+            name: "Shed (1-phase)"
+            unit: W
+            needle: true
+            min: 0
+            max: 2000
+            segments:
+              - from: 0
+                color: "#db4437"
+              - from: 200
+                color: "#ffa600"
+              - from: 800
+                color: "#43a047"
+              - from: 1500
+                color: "#1e88e5"
+
+          - type: entities
+            title: Garage Roof
+            entities:
+              - entity: sensor.waveshare_rs485_garage_roof_status
+                name: Status
+              - entity: sensor.waveshare_rs485_garage_roof_power
+                name: Power
+              - entity: sensor.waveshare_rs485_garage_roof_voltage
+                name: AC Voltage
+              - entity: sensor.waveshare_rs485_garage_roof_current
+                name: AC Current
+              - entity: sensor.waveshare_rs485_garage_roof_temperature
+                name: Temperature
+              - entity: sensor.waveshare_rs485_garage_roof_today_energy
+                name: Today
+              - entity: sensor.waveshare_rs485_garage_roof_energy
+                name: Lifetime
+              - entity: binary_sensor.waveshare_rs485_garage_roof_online
+                name: Online
+
+          - type: entities
+            title: Shed
+            entities:
+              - entity: sensor.waveshare_rs485_shed_status
+                name: Status
+              - entity: sensor.waveshare_rs485_shed_power
+                name: Power
+              - entity: sensor.waveshare_rs485_shed_voltage
+                name: AC Voltage
+              - entity: sensor.waveshare_rs485_shed_current
+                name: AC Current
+              - entity: sensor.waveshare_rs485_shed_temperature
+                name: Temperature
+              - entity: sensor.waveshare_rs485_shed_today_energy
+                name: Today
+              - entity: sensor.waveshare_rs485_shed_energy
+                name: Lifetime
+              - entity: binary_sensor.waveshare_rs485_shed_online
+                name: Online
+
+      - type: grid
+        title: "📈 History"
+        cards:
+          - type: history-graph
+            title: Total & Per-Inverter Power
+            hours_to_show: 24
+            entities:
+              - entity: sensor.waveshare_rs485_aggregate_power
+                name: Total
+              - entity: sensor.waveshare_rs485_garage_roof_power
+                name: Garage Roof
+              - entity: sensor.waveshare_rs485_shed_power
+                name: Shed
+
+          - type: history-graph
+            title: Inverter Temperature
+            hours_to_show: 24
+            entities:
+              - entity: sensor.waveshare_rs485_garage_roof_temperature
+                name: Garage Roof
+              - entity: sensor.waveshare_rs485_shed_temperature
+                name: Shed
+
+          - type: history-graph
+            title: Garage Roof — DC Power per MPPT
+            hours_to_show: 12
+            entities:
+              - entity: sensor.waveshare_rs485_garage_roof_mppt1_dc_power
+                name: MPPT1
+              - entity: sensor.waveshare_rs485_garage_roof_mppt2_dc_power
+                name: MPPT2
+              - entity: sensor.waveshare_rs485_garage_roof_mppt3_dc_power
+                name: MPPT3
+              - entity: sensor.waveshare_rs485_garage_roof_mppt4_dc_power
+                name: MPPT4
+
+          - type: history-graph
+            title: Shed — DC Power per MPPT
+            hours_to_show: 12
+            entities:
+              - entity: sensor.waveshare_rs485_shed_mppt1_dc_power
+                name: MPPT1
+              - entity: sensor.waveshare_rs485_shed_mppt2_dc_power
+                name: MPPT2
+              - entity: sensor.waveshare_rs485_shed_mppt3_dc_power
+                name: MPPT3
+              - entity: sensor.waveshare_rs485_shed_mppt4_dc_power
+                name: MPPT4
+
+      - type: grid
+        title: "🔧 System Status"
+        cards:
+          - type: entities
+            title: Victron Connection
+            entities:
+              - entity: binary_sensor.waveshare_rs485_victron_connected
+                name: Connected
+              - entity: sensor.waveshare_rs485_victron_status
+                name: Status
+              - entity: sensor.waveshare_rs485_tcp_clients
+                name: TCP Clients
+              - entity: sensor.waveshare_rs485_tcp_requests_total
+                name: Requests
+              - entity: sensor.waveshare_rs485_tcp_errors_total
+                name: Errors
+              - entity: sensor.waveshare_rs485_power_limit
+                name: Power Limit
+
+          - type: entities
+            title: DTU & Bridge
+            entities:
+              - entity: binary_sensor.waveshare_rs485_dtu_online
+                name: DTU Online
+              - entity: sensor.waveshare_rs485_dtu_poll_success
+                name: DTU Poll OK
+              - entity: sensor.waveshare_rs485_dtu_poll_failures
+                name: DTU Poll Fail
+              - entity: sensor.waveshare_rs485_wifi_signal
+                name: WiFi Signal
+              - entity: sensor.waveshare_rs485_uptime
+                name: Uptime
+              - entity: sensor.waveshare_rs485_garage_roof_poll_success
+                name: Garage Poll OK
+              - entity: sensor.waveshare_rs485_garage_roof_poll_failures
+                name: Garage Poll Fail
+              - entity: sensor.waveshare_rs485_shed_poll_success
+                name: Shed Poll OK
+              - entity: sensor.waveshare_rs485_shed_poll_failures
+                name: Shed Poll Fail
+
+  # =============================================
+  # TAB 2: MPPT Detail
+  # =============================================
+  - title: MPPT Detail
+    path: mppt-detail
+    icon: mdi:solar-panel-large
+    type: sections
+    max_columns: 4
+    sections:
+      - type: grid
+        title: "🔆 Garage Roof — MPPT Channels"
+        cards:
+          - type: entities
+            title: "MPPT1"
+            entities:
+              - entity: sensor.waveshare_rs485_garage_roof_mppt1_power
+                name: AC Power
+              - entity: sensor.waveshare_rs485_garage_roof_mppt1_dc_voltage
+                name: DC Voltage
+              - entity: sensor.waveshare_rs485_garage_roof_mppt1_dc_current
+                name: DC Current
+              - entity: sensor.waveshare_rs485_garage_roof_mppt1_dc_power
+                name: DC Power
+              - entity: sensor.waveshare_rs485_garage_roof_mppt1_ac_voltage
+                name: AC Voltage
+              - entity: sensor.waveshare_rs485_garage_roof_mppt1_frequency
+                name: Frequency
+              - entity: sensor.waveshare_rs485_garage_roof_mppt1_temperature
+                name: Temperature
+              - entity: sensor.waveshare_rs485_garage_roof_mppt1_today_energy
+                name: Today
+              - entity: sensor.waveshare_rs485_garage_roof_mppt1_total_energy
+                name: Total
+
+          - type: entities
+            title: "MPPT2"
+            entities:
+              - entity: sensor.waveshare_rs485_garage_roof_mppt2_power
+                name: AC Power
+              - entity: sensor.waveshare_rs485_garage_roof_mppt2_dc_voltage
+                name: DC Voltage
+              - entity: sensor.waveshare_rs485_garage_roof_mppt2_dc_current
+                name: DC Current
+              - entity: sensor.waveshare_rs485_garage_roof_mppt2_dc_power
+                name: DC Power
+              - entity: sensor.waveshare_rs485_garage_roof_mppt2_ac_voltage
+                name: AC Voltage
+              - entity: sensor.waveshare_rs485_garage_roof_mppt2_frequency
+                name: Frequency
+              - entity: sensor.waveshare_rs485_garage_roof_mppt2_temperature
+                name: Temperature
+              - entity: sensor.waveshare_rs485_garage_roof_mppt2_today_energy
+                name: Today
+              - entity: sensor.waveshare_rs485_garage_roof_mppt2_total_energy
+                name: Total
+
+          - type: entities
+            title: "MPPT3"
+            entities:
+              - entity: sensor.waveshare_rs485_garage_roof_mppt3_power
+                name: AC Power
+              - entity: sensor.waveshare_rs485_garage_roof_mppt3_dc_voltage
+                name: DC Voltage
+              - entity: sensor.waveshare_rs485_garage_roof_mppt3_dc_current
+                name: DC Current
+              - entity: sensor.waveshare_rs485_garage_roof_mppt3_dc_power
+                name: DC Power
+              - entity: sensor.waveshare_rs485_garage_roof_mppt3_ac_voltage
+                name: AC Voltage
+              - entity: sensor.waveshare_rs485_garage_roof_mppt3_frequency
+                name: Frequency
+              - entity: sensor.waveshare_rs485_garage_roof_mppt3_temperature
+                name: Temperature
+              - entity: sensor.waveshare_rs485_garage_roof_mppt3_today_energy
+                name: Today
+              - entity: sensor.waveshare_rs485_garage_roof_mppt3_total_energy
+                name: Total
+
+          - type: entities
+            title: "MPPT4"
+            entities:
+              - entity: sensor.waveshare_rs485_garage_roof_mppt4_power
+                name: AC Power
+              - entity: sensor.waveshare_rs485_garage_roof_mppt4_dc_voltage
+                name: DC Voltage
+              - entity: sensor.waveshare_rs485_garage_roof_mppt4_dc_current
+                name: DC Current
+              - entity: sensor.waveshare_rs485_garage_roof_mppt4_dc_power
+                name: DC Power
+              - entity: sensor.waveshare_rs485_garage_roof_mppt4_ac_voltage
+                name: AC Voltage
+              - entity: sensor.waveshare_rs485_garage_roof_mppt4_frequency
+                name: Frequency
+              - entity: sensor.waveshare_rs485_garage_roof_mppt4_temperature
+                name: Temperature
+              - entity: sensor.waveshare_rs485_garage_roof_mppt4_today_energy
+                name: Today
+              - entity: sensor.waveshare_rs485_garage_roof_mppt4_total_energy
+                name: Total
+
+      - type: grid
+        title: "🔆 Shed — MPPT Channels"
+        cards:
+          - type: entities
+            title: "MPPT1"
+            entities:
+              - entity: sensor.waveshare_rs485_shed_mppt1_power
+                name: AC Power
+              - entity: sensor.waveshare_rs485_shed_mppt1_dc_voltage
+                name: DC Voltage
+              - entity: sensor.waveshare_rs485_shed_mppt1_dc_current
+                name: DC Current
+              - entity: sensor.waveshare_rs485_shed_mppt1_dc_power
+                name: DC Power
+              - entity: sensor.waveshare_rs485_shed_mppt1_ac_voltage
+                name: AC Voltage
+              - entity: sensor.waveshare_rs485_shed_mppt1_frequency
+                name: Frequency
+              - entity: sensor.waveshare_rs485_shed_mppt1_temperature
+                name: Temperature
+              - entity: sensor.waveshare_rs485_shed_mppt1_today_energy
+                name: Today
+              - entity: sensor.waveshare_rs485_shed_mppt1_total_energy
+                name: Total
+
+          - type: entities
+            title: "MPPT2"
+            entities:
+              - entity: sensor.waveshare_rs485_shed_mppt2_power
+                name: AC Power
+              - entity: sensor.waveshare_rs485_shed_mppt2_dc_voltage
+                name: DC Voltage
+              - entity: sensor.waveshare_rs485_shed_mppt2_dc_current
+                name: DC Current
+              - entity: sensor.waveshare_rs485_shed_mppt2_dc_power
+                name: DC Power
+              - entity: sensor.waveshare_rs485_shed_mppt2_ac_voltage
+                name: AC Voltage
+              - entity: sensor.waveshare_rs485_shed_mppt2_frequency
+                name: Frequency
+              - entity: sensor.waveshare_rs485_shed_mppt2_temperature
+                name: Temperature
+              - entity: sensor.waveshare_rs485_shed_mppt2_today_energy
+                name: Today
+              - entity: sensor.waveshare_rs485_shed_mppt2_total_energy
+                name: Total
+
+          - type: entities
+            title: "MPPT3"
+            entities:
+              - entity: sensor.waveshare_rs485_shed_mppt3_power
+                name: AC Power
+              - entity: sensor.waveshare_rs485_shed_mppt3_dc_voltage
+                name: DC Voltage
+              - entity: sensor.waveshare_rs485_shed_mppt3_dc_current
+                name: DC Current
+              - entity: sensor.waveshare_rs485_shed_mppt3_dc_power
+                name: DC Power
+              - entity: sensor.waveshare_rs485_shed_mppt3_ac_voltage
+                name: AC Voltage
+              - entity: sensor.waveshare_rs485_shed_mppt3_frequency
+                name: Frequency
+              - entity: sensor.waveshare_rs485_shed_mppt3_temperature
+                name: Temperature
+              - entity: sensor.waveshare_rs485_shed_mppt3_today_energy
+                name: Today
+              - entity: sensor.waveshare_rs485_shed_mppt3_total_energy
+                name: Total
+
+          - type: entities
+            title: "MPPT4"
+            entities:
+              - entity: sensor.waveshare_rs485_shed_mppt4_power
+                name: AC Power
+              - entity: sensor.waveshare_rs485_shed_mppt4_dc_voltage
+                name: DC Voltage
+              - entity: sensor.waveshare_rs485_shed_mppt4_dc_current
+                name: DC Current
+              - entity: sensor.waveshare_rs485_shed_mppt4_dc_power
+                name: DC Power
+              - entity: sensor.waveshare_rs485_shed_mppt4_ac_voltage
+                name: AC Voltage
+              - entity: sensor.waveshare_rs485_shed_mppt4_frequency
+                name: Frequency
+              - entity: sensor.waveshare_rs485_shed_mppt4_temperature
+                name: Temperature
+              - entity: sensor.waveshare_rs485_shed_mppt4_today_energy
+                name: Today
+              - entity: sensor.waveshare_rs485_shed_mppt4_total_energy
+                name: Total

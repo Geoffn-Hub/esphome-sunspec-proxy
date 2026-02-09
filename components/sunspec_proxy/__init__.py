@@ -87,54 +87,52 @@ sunspec_proxy_ns = cg.esphome_ns.namespace("sunspec_proxy")
 SunSpecProxy = sunspec_proxy_ns.class_("SunSpecProxy", cg.Component)
 
 # Known Hoymiles inverter models with their characteristics
+# Sources: hoymiles.com product pages, verified 2026-02
+# HM series models contributed by LoQue90
+# Extended specs (max_vdc, max_idc) added for voltage/current validation
 HOYMILES_MODELS = {
-    # HM Single-phase microinverters - 1 MPPT
-    "HM-300": {"phases": 1, "mppt": 1, "power": 300},
-    "HM-350": {"phases": 1, "mppt": 1, "power": 350},
-    "HM-400": {"phases": 1, "mppt": 1, "power": 400}, 
-    # HM Single-phase microinverters - 2 MPPT
-    "HM-600": {"phases": 1, "mppt": 2, "power": 600},
-    "HM-700": {"phases": 1, "mppt": 2, "power": 700},
-    "HM-800": {"phases": 1, "mppt": 2, "power": 800},
-    # HM Single-phase microinverters - 4 MPPT
-    "HM-1200": {"phases": 1, "mppt": 4, "power": 1200},
-    "HM-1500": {"phases": 1, "mppt": 4, "power": 1500},
-    # Single-phase microinverters (HMS series) - 1 MPPT
-    "HMS-300-1T": {"phases": 1, "mppt": 1, "power": 300},
-    "HMS-350-1T": {"phases": 1, "mppt": 1, "power": 350},
-    "HMS-400-1T": {"phases": 1, "mppt": 1, "power": 400},
-    "HMS-450-1T": {"phases": 1, "mppt": 1, "power": 450},
-    "HMS-500-1T": {"phases": 1, "mppt": 1, "power": 500},
-    # Single-phase microinverters (HMS series) - 2 MPPT
-    "HMS-600-2T": {"phases": 1, "mppt": 2, "power": 600},
-    "HMS-700-2T": {"phases": 1, "mppt": 2, "power": 700},
-    "HMS-800-2T": {"phases": 1, "mppt": 2, "power": 800},
-    "HMS-900-2T": {"phases": 1, "mppt": 2, "power": 900},
-    "HMS-1000-2T": {"phases": 1, "mppt": 2, "power": 1000},
-    # Single-phase microinverters (HMS series) - 4 MPPT
-    "HMS-1600-4T": {"phases": 1, "mppt": 4, "power": 1600},
-    "HMS-1800-4T": {"phases": 1, "mppt": 4, "power": 1800},
-    "HMS-2000-4T": {"phases": 1, "mppt": 4, "power": 2000},
-    # Three-phase microinverters (HMT series) - 4 MPPT
-    "HMT-1600-4T": {"phases": 3, "mppt": 4, "power": 1600},
-    "HMT-1800-4T": {"phases": 3, "mppt": 4, "power": 1800},
-    "HMT-2000-4T": {"phases": 3, "mppt": 4, "power": 2000},
-    # Three-phase microinverters (HMT series) - 6 MPPT
-    "HMT-2250-6T": {"phases": 3, "mppt": 6, "power": 2250},
-    # MIT series
-    "MIT-1300-2T": {"phases": 3, "mppt": 2, "power": 1300},
-    "MIT-1500-2T": {"phases": 3, "mppt": 2, "power": 1500},
-    "MIT-1600-4T": {"phases": 3, "mppt": 4, "power": 1600},
-    "MIT-1800-4T": {"phases": 3, "mppt": 4, "power": 1800},
-    "MIT-2000-4T": {"phases": 3, "mppt": 4, "power": 2000},
-    "MIT-2500-6T": {"phases": 3, "mppt": 6, "power": 2500},
-    "MIT-3000-6T": {"phases": 3, "mppt": 6, "power": 3000},
-    "MIT-4000-8T": {"phases": 3, "mppt": 8, "power": 4000},
-    "MIT-5000-8T": {"phases": 3, "mppt": 8, "power": 5000},
-    "MIT-6000-8T": {"phases": 3, "mppt": 8, "power": 6000},
-    # Generic fallback
-    "GENERIC-1P": {"phases": 1, "mppt": 2, "power": 1000},
-    "GENERIC-3P": {"phases": 3, "mppt": 4, "power": 3000},
+    # === Legacy HM Series (2.4GHz RF) - contributed by LoQue90 ===
+    "HM-300": {"phases": 1, "mppt": 1, "power": 300, "max_vdc": 60, "max_idc": 10.5},
+    "HM-350": {"phases": 1, "mppt": 1, "power": 350, "max_vdc": 60, "max_idc": 10.5},
+    "HM-400": {"phases": 1, "mppt": 1, "power": 400, "max_vdc": 60, "max_idc": 10.5},
+    "HM-600": {"phases": 1, "mppt": 2, "power": 600, "max_vdc": 60, "max_idc": 11.5},
+    "HM-700": {"phases": 1, "mppt": 2, "power": 700, "max_vdc": 60, "max_idc": 11.5},
+    "HM-800": {"phases": 1, "mppt": 2, "power": 800, "max_vdc": 60, "max_idc": 11.5},
+    "HM-1200": {"phases": 1, "mppt": 4, "power": 1200, "max_vdc": 60, "max_idc": 11.5},
+    "HM-1500": {"phases": 1, "mppt": 4, "power": 1500, "max_vdc": 60, "max_idc": 11.5},
+    
+    # === HMS Series (Single-phase, Sub-1G wireless) ===
+    # 1T: Single panel per inverter
+    "HMS-300-1T": {"phases": 1, "mppt": 1, "power": 300, "max_vdc": 60, "max_idc": 11.5},
+    "HMS-350-1T": {"phases": 1, "mppt": 1, "power": 350, "max_vdc": 60, "max_idc": 11.5},
+    "HMS-400-1T": {"phases": 1, "mppt": 1, "power": 400, "max_vdc": 65, "max_idc": 12.5},
+    "HMS-450-1T": {"phases": 1, "mppt": 1, "power": 450, "max_vdc": 65, "max_idc": 13.3},
+    "HMS-500-1T": {"phases": 1, "mppt": 1, "power": 500, "max_vdc": 65, "max_idc": 14.0},
+    # 2T: Dual panel per inverter (1 shared MPPT, 2 data channels)
+    "HMS-600-2T": {"phases": 1, "mppt": 2, "power": 600, "max_vdc": 60, "max_idc": 11.5},
+    "HMS-700-2T": {"phases": 1, "mppt": 2, "power": 700, "max_vdc": 60, "max_idc": 11.5},
+    "HMS-800-2T": {"phases": 1, "mppt": 2, "power": 800, "max_vdc": 65, "max_idc": 12.5},
+    "HMS-900-2T": {"phases": 1, "mppt": 2, "power": 900, "max_vdc": 65, "max_idc": 13.3},
+    "HMS-1000-2T": {"phases": 1, "mppt": 2, "power": 1000, "max_vdc": 65, "max_idc": 14.0},
+    # 4T: Quad panel per inverter (4 independent MPPTs)
+    "HMS-1600-4T": {"phases": 1, "mppt": 4, "power": 1600, "max_vdc": 65, "max_idc": 12.5},
+    "HMS-1800-4T": {"phases": 1, "mppt": 4, "power": 1800, "max_vdc": 65, "max_idc": 13.3},
+    "HMS-2000-4T": {"phases": 1, "mppt": 4, "power": 2000, "max_vdc": 65, "max_idc": 14.0},
+    
+    # === HMT Series (Three-phase, Sub-1G wireless) ===
+    "HMT-1600-4T": {"phases": 3, "mppt": 4, "power": 1600, "max_vdc": 65, "max_idc": 12.5},
+    "HMT-1800-4T": {"phases": 3, "mppt": 4, "power": 1800, "max_vdc": 65, "max_idc": 13.3},
+    "HMT-2000-4T": {"phases": 3, "mppt": 4, "power": 2000, "max_vdc": 65, "max_idc": 14.0},
+    "HMT-2250-6T": {"phases": 3, "mppt": 6, "power": 2250, "max_vdc": 65, "max_idc": 14.0},
+    
+    # === MIT Series (Three-phase, high-power commercial) ===
+    "MIT-4000-8T": {"phases": 3, "mppt": 8, "power": 4000, "max_vdc": 140, "max_idc": 20.0},
+    "MIT-4500-8T": {"phases": 3, "mppt": 8, "power": 4500, "max_vdc": 140, "max_idc": 20.0},
+    "MIT-5000-8T": {"phases": 3, "mppt": 8, "power": 5000, "max_vdc": 140, "max_idc": 20.0},
+    
+    # === Generic fallbacks ===
+    "GENERIC-1P": {"phases": 1, "mppt": 2, "power": 1000, "max_vdc": 60, "max_idc": 12.0},
+    "GENERIC-3P": {"phases": 3, "mppt": 4, "power": 2000, "max_vdc": 65, "max_idc": 14.0},
 }
 
 # Sensor configuration schemas
