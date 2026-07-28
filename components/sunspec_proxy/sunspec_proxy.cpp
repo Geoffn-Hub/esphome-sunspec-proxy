@@ -356,9 +356,7 @@ void SunSpecProxy::aggregate_and_update_registers_() {
   agg_frequency_hz_ = sum_freq / valid_count;
   agg_energy_kwh_ = (float)total_energy_wh / 1000.0f;
 
-  // Write to register map
-  inv[INV_W] = (uint16_t)(int16_t)(int)total_power;
-
+  // Write to register map (Phase values first)
   inv[INV_A]    = (uint16_t)(total_current * 100.0f);
   inv[INV_AphA] = (uint16_t)(phase_current[0] * 100.0f);
   inv[INV_AphB] = (uint16_t)(phase_current[1] * 100.0f);
@@ -381,6 +379,19 @@ void SunSpecProxy::aggregate_and_update_registers_() {
     inv[INV_PhVphB] = 0xFFFF; 
     inv[INV_PhVphC] = 0xFFFF;
   }
+
+  // To pass Victron's strict internal consistency checks, we must compute INV_W
+  // directly from the exact scaled V and A values we just placed in the registers.
+  float victron_w = 0;
+  if (agg_config_.phases == 3) {
+    float w_a = ((float)inv[INV_AphA] / 100.0f) * ((float)inv[INV_PhVphA] / 10.0f);
+    float w_b = ((float)inv[INV_AphB] / 100.0f) * ((float)inv[INV_PhVphB] / 10.0f);
+    float w_c = ((float)inv[INV_AphC] / 100.0f) * ((float)inv[INV_PhVphC] / 10.0f);
+    victron_w = w_a + w_b + w_c;
+  } else {
+    victron_w = ((float)inv[INV_A] / 100.0f) * ((float)inv[INV_PhVphA] / 10.0f);
+  }
+  inv[INV_W] = (uint16_t)(int16_t)(int)roundf(victron_w);
 
   inv[INV_Hz] = (uint16_t)((sum_freq / valid_count) * 100.0f);
 
@@ -1092,6 +1103,9 @@ void SunSpecProxy::poll_dtu_data_() {
     dtu_poll_fail_count_++;
     return;
   }
+  
+  // Keep servicing Victron TCP requests between DTU chunks to prevent dropouts
+  handle_tcp_clients_();
   
   // Read remaining 75 registers
   if (!send_modbus_tcp_request_(0x03, HM_DATA_BASE + 125, 75)) {
