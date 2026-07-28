@@ -343,6 +343,25 @@ void SunSpecProxy::aggregate_and_update_registers_() {
   // Frequency (SF=-2 → Hz * 100)
   inv[INV_Hz] = (uint16_t)((sum_freq / valid_count) * 100.0f);
 
+  // Calculate VA and VAr
+  total_va = 0;
+  if (agg_config_.phases == 3) {
+    total_va = (avg_v[0] * phase_current[0]) + (avg_v[1] * phase_current[1]) + (avg_v[2] * phase_current[2]);
+  } else {
+    total_va = avg_v[0] * total_current;
+  }
+  
+  if (total_va < total_power) {
+    total_va = total_power; // VA cannot be less than W
+  }
+  
+  total_var = 0;
+  if (total_va > total_power) {
+    total_var = sqrtf((total_va * total_va) - (total_power * total_power));
+  } else {
+    total_var = 0;
+  }
+
   // VA / VAr (SF=0)
   inv[INV_VA] = (uint16_t)(int16_t)(int)total_va;
   inv[INV_VAr] = (uint16_t)(int16_t)(int)total_var;
@@ -352,6 +371,8 @@ void SunSpecProxy::aggregate_and_update_registers_() {
     float pf = total_power / total_va;
     if (pf > 1.0f) pf = 1.0f;
     inv[INV_PF] = (uint16_t)(int16_t)(int)(pf * 100.0f);
+  } else {
+    inv[INV_PF] = (uint16_t)(int16_t)-1; // Not implemented
   }
 
   // Energy (SF=0, acc32 Wh)
