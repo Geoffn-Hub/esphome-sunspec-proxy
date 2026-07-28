@@ -357,10 +357,14 @@ void SunSpecProxy::aggregate_and_update_registers_() {
   agg_energy_kwh_ = (float)total_energy_wh / 1000.0f;
 
   // Write to register map (Phase values first)
-  inv[INV_A]    = (uint16_t)(total_current * 100.0f);
   inv[INV_AphA] = (uint16_t)(phase_current[0] * 100.0f);
   inv[INV_AphB] = (uint16_t)(phase_current[1] * 100.0f);
   inv[INV_AphC] = (uint16_t)(phase_current[2] * 100.0f);
+  if (agg_config_.phases == 3) {
+    inv[INV_A] = inv[INV_AphA] + inv[INV_AphB] + inv[INV_AphC];
+  } else {
+    inv[INV_A] = (uint16_t)(total_current * 100.0f);
+  }
 
   if (agg_config_.phases == 3) {
     inv[INV_PhVphA] = (uint16_t)(avg_v[0] * 10.0f);
@@ -395,18 +399,11 @@ void SunSpecProxy::aggregate_and_update_registers_() {
 
   inv[INV_Hz] = (uint16_t)((sum_freq / valid_count) * 100.0f);
 
-  // VA / VAr (SF=0)
-  inv[INV_VA] = (uint16_t)(int16_t)(int)total_va;
-  inv[INV_VAr] = (uint16_t)(int16_t)(int)total_var;
-
-  // Power factor (SF=-2 → PF * 100)
-  if (total_va > 0) {
-    float pf = total_power / total_va;
-    if (pf > 1.0f) pf = 1.0f;
-    inv[INV_PF] = (uint16_t)(int16_t)(int)(pf * 100.0f);
-  } else {
-    inv[INV_PF] = (uint16_t)(int16_t)-1; // Not implemented / unknown if 0 VA
-  }
+  // Mark unused/geometric values as Not Implemented (0x8000 for signed 16-bit)
+  // Victron GX drops the total power if VA^2 != W^2 + VAr^2
+  inv[INV_VA] = 0x8000;
+  inv[INV_VAr] = 0x8000;
+  inv[INV_PF] = 0x8000;
 
   // Energy (SF=0, acc32 Wh)
   inv[INV_WH]     = (uint16_t)(total_energy_wh >> 16);
@@ -420,11 +417,7 @@ void SunSpecProxy::aggregate_and_update_registers_() {
   }
 
   // DC power (SF=0)
-  if (total_dc_power > 0) {
-    inv[INV_DCW] = (uint16_t)(int16_t)(int)total_dc_power;
-  } else {
-    inv[INV_DCW] = 0x8000; // Not implemented
-  }
+  inv[INV_DCW] = 0x8000; // Not implemented to skip Victron DC cross-checks
 
   // Mark unimplemented temperatures
   inv[INV_TmpSnk] = 0x8000;
