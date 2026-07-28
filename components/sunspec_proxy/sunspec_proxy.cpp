@@ -240,111 +240,98 @@ void SunSpecProxy::aggregate_and_update_registers_() {
   int phase_voltage_count[3] = {0, 0, 0};
 
   float total_power = 0, total_current = 0;
-  float sum_freq = 0, total_va = 0, total_var = 0;
+  float sum_freq = 0;
   uint32_t total_energy_wh = 0;
   float max_temp = NAN;
   float total_dc_power = 0;
   int valid_count = 0;
   bool any_producing = false;
 
-  // FIXED: Use decoded float values from sources instead of reading raw_regs as SunSpec
   for (int i = 0; i < num_sources_; i++) {
     auto &s = sources_[i];
     if (!s.data_valid) continue;
     valid_count++;
 
-    // Use the already-decoded values from the Hoymiles data
     total_power += s.power_w;
     total_current += s.current_a;
     if (s.power_w > 0) any_producing = true;
     sum_freq += s.frequency_hz;
 
-    // Total energy in Wh from kWh
     total_energy_wh += (uint32_t)(s.energy_kwh * 1000.0f);
 
-    // Temperature
-    if (std::isnan(max_temp) || s.temperature_c > max_temp)
+    if (std::isnan(max_temp) || (!std::isnan(s.temperature_c) && s.temperature_c > max_temp)) {
       max_temp = s.temperature_c;
-
-    // Phase distribution
-    if (s.phases == 3) {
-      // 3-phase: distribute evenly (we only have total values from Hoymiles)
-      for (int p = 0; p < 3; p++) {
-        phase_current[p] += s.current_a / 3.0f;
-        phase_voltage_sum[p] += s.voltage_v;
-        phase_voltage_count[p]++;
-      }
-    } else {
-      // Single-phase: add to connected_phase
-      int ph = s.connected_phase - 1;  // 0-indexed (0=L1, 1=L2, 2=L3)
-      if (ph < 0 || ph > 2) ph = 0;
-      phase_current[ph] += s.current_a;
-      phase_voltage_sum[ph] += s.voltage_v;
-      phase_voltage_count[ph]++;
     }
 
-    // DC power (approximate from PV power)
-    total_dc_power += s.pv_power_w;
+    if (agg_config_.phases == 3) {
+      if (s.phases == 1) {
+        int ph = s.connected_phase - 1;
+        if (ph >= 0 && ph < 3) {
+          phase_power[ph] += s.power_w;
+          phase_current[ph] += s.current_a;
+          phase_voltage_sum[ph] += s.voltage_v;
+          phase_voltage_count[ph]++;
+        }
+      } else {
+        for (int p = 0; p < 3; p++) {
+          phase_power[p] += s.power_w / 3.0f;
+          phase_current[p] += s.current_a / 3.0f;
+          phase_voltage_sum[p] += s.voltage_v;
+          phase_voltage_count[p]++;
+        }
+      }
+    } else {
+      phase_power[0] += s.power_w;
+      phase_current[0] += s.current_a;
+      phase_voltage_sum[0] += s.voltage_v;
+      phase_voltage_count[0]++;
+    }
 
+    total_dc_power += s.pv_power_w;
     s.producing = (s.power_w > 0);
     update_source_status_(i);
   }
 
   if (valid_count == 0) {
-    inv[INV_St] = 2;
+    inv[INV_St] = 2; // SLEEP
+    inv[INV_W] = 0;
+    inv[INV_A] = 0;
+    inv[INV_AphA] = 0;
+    inv[INV_AphB] = 0;
+    inv[INV_AphC] = 0;
+    if (agg_config_.phases == 3) {
+       inv[INV_PhVphA] = 0;
+       inv[INV_PhVphB] = 0;
+       inv[INV_PhVphC] = 0;
+       inv[INV_PPVphAB] = 0;
+       inv[INV_PPVphBC] = 0;
+       inv[INV_PPVphCA] = 0;
+    } else {
+       inv[5] = 0;
+       inv[INV_PhVphA] = 0;
+       inv[INV_PhVphB] = 0xFFFF;
+       inv[INV_PhVphC] = 0xFFFF;
+    }
+    inv[INV_Hz] = 0;
+    inv[INV_VA] = 0;
+    inv[INV_VAr] = 0;
+    inv[INV_PF] = 0;
+    inv[INV_DCW] = 0;
+    inv[INV_TmpCab] = 0x8000;
+    
     agg_power_w_ = 0; agg_current_a_ = 0; agg_voltage_v_ = 0; agg_frequency_hz_ = 0;
     ESP_LOGW(TAG, "Aggregation: no valid sources");
     return;
   }
 
   // Compute averaged voltages per phase
-  float avg_v[3];
+  float avg_v[3] = {0, 0, 0};
   for (int p = 0; p < 3; p++) {
     avg_v[p] = phase_voltage_count[p] > 0 ? phase_voltage_sum[p] / phase_voltage_count[p] : 0;
   }
 
-  // Store aggregate decoded values
-  agg_power_w_ = total_power;
-  agg_current_a_ = total_current;
-  agg_voltage_v_ = avg_v[0]; // report L1 as primary
-  agg_frequency_hz_ = sum_freq / valid_count;
-  agg_energy_kwh_ = (float)total_energy_wh / 1000.0f;
-
-  // Write to register map
-  // Our SFs: A=-2, V=-1, W=0, Hz=-2, VA=0, VAr=0, PF=-2, WH=0, Tmp=-1
-
-  // Total AC power
-  inv[INV_W] = (uint16_t)(int16_t)(int)total_power;
-
-  // Total and per-phase current (SF=-2 → register = A * 100)
-  inv[INV_A]    = (uint16_t)(total_current * 100.0f);
-  inv[INV_AphA] = (uint16_t)(phase_current[0] * 100.0f);
-  inv[INV_AphB] = (uint16_t)(phase_current[1] * 100.0f);
-  inv[INV_AphC] = (uint16_t)(phase_current[2] * 100.0f);
-
-  // Per-phase voltage (SF=-1 → register = V * 10)
-  inv[INV_PhVphA] = (uint16_t)(avg_v[0] * 10.0f);
-  inv[INV_PhVphB] = (uint16_t)(avg_v[1] * 10.0f);
-  inv[INV_PhVphC] = (uint16_t)(avg_v[2] * 10.0f);
-
-  // Line-to-line voltages (SF=-1)
-  if (agg_config_.phases == 3) {
-    // Proper L-L from L-N: Vab = sqrt(Va² + Vb² - 2*Va*Vb*cos(120°))
-    // For balanced system: Vll ≈ Vln * sqrt(3)
-    // Use actual phase voltages for better accuracy
-    float vab = sqrtf(avg_v[0]*avg_v[0] + avg_v[1]*avg_v[1] + avg_v[0]*avg_v[1]); // cos(120°) = -0.5
-    float vbc = sqrtf(avg_v[1]*avg_v[1] + avg_v[2]*avg_v[2] + avg_v[1]*avg_v[2]);
-    float vca = sqrtf(avg_v[2]*avg_v[2] + avg_v[0]*avg_v[0] + avg_v[2]*avg_v[0]);
-    inv[INV_PPVphAB] = (uint16_t)(vab * 10.0f);
-    inv[INV_PPVphBC] = (uint16_t)(vbc * 10.0f);
-    inv[INV_PPVphCA] = (uint16_t)(vca * 10.0f);
-  }
-
-  // Frequency (SF=-2 → Hz * 100)
-  inv[INV_Hz] = (uint16_t)((sum_freq / valid_count) * 100.0f);
-
   // Calculate VA and VAr
-  total_va = 0;
+  float total_va = 0;
   if (agg_config_.phases == 3) {
     total_va = (avg_v[0] * phase_current[0]) + (avg_v[1] * phase_current[1]) + (avg_v[2] * phase_current[2]);
   } else {
@@ -355,12 +342,47 @@ void SunSpecProxy::aggregate_and_update_registers_() {
     total_va = total_power; // VA cannot be less than W
   }
   
-  total_var = 0;
+  float total_var = 0;
   if (total_va > total_power) {
     total_var = sqrtf((total_va * total_va) - (total_power * total_power));
   } else {
     total_var = 0;
   }
+
+  // Store aggregate decoded values
+  agg_power_w_ = total_power;
+  agg_current_a_ = total_current;
+  agg_voltage_v_ = avg_v[0]; // report L1 as primary
+  agg_frequency_hz_ = sum_freq / valid_count;
+  agg_energy_kwh_ = (float)total_energy_wh / 1000.0f;
+
+  // Write to register map
+  inv[INV_W] = (uint16_t)(int16_t)(int)total_power;
+
+  inv[INV_A]    = (uint16_t)(total_current * 100.0f);
+  inv[INV_AphA] = (uint16_t)(phase_current[0] * 100.0f);
+  inv[INV_AphB] = (uint16_t)(phase_current[1] * 100.0f);
+  inv[INV_AphC] = (uint16_t)(phase_current[2] * 100.0f);
+
+  if (agg_config_.phases == 3) {
+    inv[INV_PhVphA] = (uint16_t)(avg_v[0] * 10.0f);
+    inv[INV_PhVphB] = (uint16_t)(avg_v[1] * 10.0f);
+    inv[INV_PhVphC] = (uint16_t)(avg_v[2] * 10.0f);
+
+    float vab = sqrtf(avg_v[0]*avg_v[0] + avg_v[1]*avg_v[1] + avg_v[0]*avg_v[1]); 
+    float vbc = sqrtf(avg_v[1]*avg_v[1] + avg_v[2]*avg_v[2] + avg_v[1]*avg_v[2]);
+    float vca = sqrtf(avg_v[2]*avg_v[2] + avg_v[0]*avg_v[0] + avg_v[2]*avg_v[0]);
+    inv[INV_PPVphAB] = (uint16_t)(vab * 10.0f);
+    inv[INV_PPVphBC] = (uint16_t)(vbc * 10.0f);
+    inv[INV_PPVphCA] = (uint16_t)(vca * 10.0f);
+  } else {
+    inv[5] = (uint16_t)(avg_v[0] * 10.0f);
+    inv[INV_PhVphA] = (uint16_t)(avg_v[0] * 10.0f);
+    inv[INV_PhVphB] = 0xFFFF; 
+    inv[INV_PhVphC] = 0xFFFF;
+  }
+
+  inv[INV_Hz] = (uint16_t)((sum_freq / valid_count) * 100.0f);
 
   // VA / VAr (SF=0)
   inv[INV_VA] = (uint16_t)(int16_t)(int)total_va;
@@ -372,7 +394,7 @@ void SunSpecProxy::aggregate_and_update_registers_() {
     if (pf > 1.0f) pf = 1.0f;
     inv[INV_PF] = (uint16_t)(int16_t)(int)(pf * 100.0f);
   } else {
-    inv[INV_PF] = (uint16_t)(int16_t)-1; // Not implemented
+    inv[INV_PF] = (uint16_t)(int16_t)-1; // Not implemented / unknown if 0 VA
   }
 
   // Energy (SF=0, acc32 Wh)
@@ -382,12 +404,21 @@ void SunSpecProxy::aggregate_and_update_registers_() {
   // Temperature (SF=-1 → °C * 10)
   if (!std::isnan(max_temp)) {
     inv[INV_TmpCab] = (uint16_t)(int16_t)(int)(max_temp * 10.0f);
+  } else {
+    inv[INV_TmpCab] = 0x8000; // Not implemented
   }
 
   // DC power (SF=0)
   if (total_dc_power > 0) {
     inv[INV_DCW] = (uint16_t)(int16_t)(int)total_dc_power;
+  } else {
+    inv[INV_DCW] = 0x8000; // Not implemented
   }
+
+  // Mark unimplemented temperatures
+  inv[INV_TmpSnk] = 0x8000;
+  inv[INV_TmpTrns] = 0x8000;
+  inv[INV_TmpOt] = 0x8000;
 
   // Operating state
   inv[INV_St] = any_producing ? 4 : 2;
@@ -400,11 +431,6 @@ void SunSpecProxy::aggregate_and_update_registers_() {
            valid_count, num_sources_,
            any_producing ? "MPPT" : "Sleep");
 }
-
-// ============================================================
-// Sensor Publishing
-// ============================================================
-
 void SunSpecProxy::update_source_status_(int idx) {
   auto &s = sources_[idx];
   if (!s.data_valid) return;
